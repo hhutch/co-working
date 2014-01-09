@@ -1,0 +1,12 @@
+(add-to-list 'load-path "~/.emacs.d/")
+(add-to-list 'load-path "~/.emacs.d/elpa")
+(require 'package)
+(add-to-list 'package-archives
+             '("melpa" . "http://melpa.milkbox.net/packages/") t)
+(package-initialize)
+(package-list-packages)
+(when (not (package-installed-p 'nrepl)) (package-install 'nrepl))
+(when (not (package-installed-p 'clojure-mode)) (package-install 'clojure-mode))
+(when (not (package-installed-p 'rainbow-delimeters)) (package-install 'rainbow-delimiters))
+(when (not (package-installed-p 'zencoding-mode)) (package-install 'zencoding-mode))
+(when (not (package-installed-p 'paredit)) (package-install 'paredit))

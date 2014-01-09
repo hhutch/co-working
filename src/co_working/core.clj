@@ -1,29 +1,30 @@
 (ns co-working.core
   (:require
-   [co-working.crate.git :as git]
-   [pallet.session :as session]
-   [pallet.compute   :as compute])
-  (:use [pallet.thread-expr]
-        [pallet.crate.automated-admin-user :only [automated-admin-user]]
-        [pallet.action.directory   :only [directory]]
-        [pallet.action.remote-file :only [remote-file]]
-        [pallet.action.file        :only [file symbolic-link]]
-        [pallet.action.exec-script :only [exec-script exec-checked-script]]
-        [pallet.action.package     :only [packages package-manager package]]
-        [pallet.crate.java         :only [java-settings install-java]]
-        [pallet.core               :only [group-spec server-spec node-spec admin-user converge lift]]
-        [pallet.phase              :only [phase-fn]]
-        [pallet.action.user        :only [user]]
+   [pallet.core.session :as session]
+   [pallet.compute   :as compute]
+   [pallet.configure :as configure]
+   [pallet.node :as node]
+   [pallet.crate.java :as java]
+   [pallet.crate.git :as git]
+   [pallet.crate.lein :as lein])
+  (:use [pallet.crate.automated-admin-user :only [automated-admin-user]]
+        [pallet.action :only [with-action-options]]
+        [pallet.actions :only [packages package-manager package symbolic-link 
+                               file exec-script directory remote-file 
+                               minimal-packages exec-checked-script]]
+        [pallet.api :only [plan-fn lift converge group-spec server-spec node-spec]]
+        [pallet.crate :only [defplan get-settings]]
         [clojure.pprint]))
 
 (defn show-nodes
   "A better node list"
   [srvc]
-  (map #(vector (compute/id %)
-                (compute/primary-ip %)
-                (compute/group-name %))
+  (map #(vector (node/id %)
+                (node/primary-ip %)
+                (node/group-name %))
        (compute/nodes srvc)))
 
+#_
 (defn local-pallet-dir
   "Get the .pallet dir of the user currently running pallet"
   []
@@ -33,59 +34,54 @@
            (java.io.File. (System/getProperty "user.home") ".pallet"))
      .mkdirs)))
 
-(defn- sane-package-manager
-  [request]
-  (-> request
-      (package-manager :universe)
-      (package-manager :multiverse)
-      (package-manager :update)))
+#_
+(defplan sane-package-manager
+  []
+  (package-manager :universe)
+  (package-manager :multiverse)
+  (package-manager :update))
 
-(defn standard-prereqs
+(defplan standard-prereqs
   "General prerequesite packages and configurations"
-  [request]
-  (-> request
-      (package-manager :update)
-      (package-manager :upgrade)
-      (packages :aptitude
-                ["curl" "vim-nox" "ntp" "ntpdate" "htop" "gnu-standards" "flex"
-                 "bison" "gdb" "gettext" "build-essential" "perl-doc" "unzip"
-                 "rlwrap" "subversion" "unrar" "screen" "tmux"])
-      (file "/etc/localtime" :action :delete :force true)
-      (symbolic-link "/usr/share/zoneinfo/US/Eastern" "/etc/localtime"
-                     :action :create
-                     :force true)))
+  []
+  (package-manager :update)
+  (package-manager :upgrade)
+  (packages :aptitude
+            ["curl" "vim-nox" "ntp" "ntpdate" "htop" "gnu-standards" "flex"
+             "bison" "gdb" "gettext" "build-essential" "perl-doc" "unzip"
+             "rlwrap" "subversion" "unrar" "screen" "tmux"]))
 
 
-(defn clojure-development
+(defplan clojure-development
   "tools needed to run clojure applications"
-  [request]
-  (let [administrative-user (:username (session/admin-user request))
+  []
+  (let [administrative-user (:username (session/admin-user (session/session)))
         admin-home-dir (str "/home/" administrative-user)]
-    (-> request
-        (exec-script
-         (if-not (which lein)
-           (do
-             (wget -q -O "/usr/local/bin/lein" "https://github.com/technomancy/leiningen/raw/stable/bin/lein")
-             (chmod 755 ~"/usr/local/bin/lein")
-             (sudo -u ~administrative-user (lein "self-install"))))))))
+    (exec-script
+     (if-not ("which" lein)
+       (do
+         ("wget" -q -O "/usr/local/bin/lein" "https://github.com/technomancy/leiningen/raw/stable/bin/lein")
+         ("chmod" 755 ~"/usr/local/bin/lein")
+         ("sudo" -u ~administrative-user ("lein" "self-install")))))))
 
-(defn co-working
-  [request]
-  (let [administrative-user (:username (session/admin-user request))
+(defplan co-working
+  []
+  (let [administrative-user (:username (session/admin-user (session/session)))
         admin-home-dir (str "/home/" administrative-user)]
-    (-> request
-        (packages :aptitude ["tmux"])
-        (git/install-git)
-        (git/clone-or-pull "/usr/local/share/wemux" "git://github.com/zolrath/wemux.git")
-        (symbolic-link "/usr/local/share/wemux/wemux" "/usr/local/bin/wemux"
-                     :action :create
-                     :force true)
-        (remote-file "/usr/local/etc/wemux.conf" :force true :action :create
-                     :remote-file "/usr/local/share/wemux/wemux.conf.example")       
-        (exec-script (if-not (wemux list)
-                       (sudo -u ~administrative-user wemux new "-d")))
-        (file "/tmp/wemux-wemux" :mode 1777))))
+    (packages :aptitude ["tmux"])
+    (git/install-git)
+    ;; (git/clone-or-pull "/usr/local/share/wemux" "git://github.com/zolrath/wemux.git")
+    ;; (symbolic-link "/usr/local/share/wemux/wemux" "/usr/local/bin/wemux"
+    ;;                :action :create
+    ;;                :force true)
+    ;; (remote-file "/usr/local/etc/wemux.conf" :force true :action :create
+    ;;              :remote-file "/usr/local/share/wemux/wemux.conf.example")       
+    ;; (exec-script (if-not (wemux list)
+    ;;                (sudo -u ~administrative-user wemux new "-d")))
+    ;; (file "/tmp/wemux-wemux" :mode 1777)
+    ))
 
+#_
 (defn load-props
   [file-name]
   (with-open [^java.io.Reader reader (clojure.java.io/reader file-name)]
@@ -93,6 +89,7 @@
       (.load props reader)
       (into {} (for [[k v] props] [(keyword k) (read-string v)])))))
 
+#_
 (defn update-users
   "load in configuration from file and add users"
   [request]
@@ -120,6 +117,7 @@
 ;;
 ;; * We assume that the user running pallet commands will have a ~/.pallet directory
 ;; * ~/.pallet dir contains ssh keys for the specified admin user in the format: admin-user-name_rsa.pub
+#_
 (defn set-admin-user
   "Use conventions to assume locations of keys for admin-user"
   [a-user]
@@ -141,43 +139,90 @@
 
 (def with-base-server
   (server-spec
-   :phases {:bootstrap (phase-fn (automated-admin-user))
-            :settings (phase-fn
-                       (java-settings {:vendor :openjdk})
-                       (java-settings {:vendor :oraclepp :version "7"
+   :phases {:bootstrap (plan-fn (automated-admin-user))
+
+            :settings (plan-fn
+                       ;(java/settings {:vendor :openjdk})
+                       (java/settings {:vendor :oraclepp :version "7"
                                        :components #{:jdk}
-                                       :instance-id :oracle-7}))
-            :configure (phase-fn
-                        (sane-package-manager)
+                                       :instance-id :oracle-7})
+                       (lein/lein-settings {:version "2.1.3"
+                                            :dir "/usr/local/bin/"}))
+            :configure (plan-fn
                         ;; this will might your life better, but don't do on a slow internet connection
-;                        (standard-prereqs)
-                        (co-working)
-                        (install-java)
-                        (clojure-development)
-;                        (update-users)
+                        (standard-prereqs)
+                                        ;(co-working)
+                        (git/install-git)
+                        ;; (java/install {})
+                        ;; (clojure-development)
+                                        ;                        (update-users)
                         )
-            :update-users (phase-fn (update-users))
-            :clojure (phase-fn (clojure-development))
-            :co-working (phase-fn (co-working))}))
+            ;; :update-users (plan-fn (update-users))
+            :java (plan-fn (java/install {}))
+            :clojure (plan-fn (clojure-development))
+            :co-working (plan-fn (co-working))
+            :git-install (plan-fn
+                          (git/install-git))
+            :git-get (plan-fn
+                      (let [co-dir "/tmp/p.03"]
+                        (with-action-options {:script-prefix :no-sudo}
+                          (git/clone "https://github.com/pallet/pallet.git"
+                                     :checkout-dir co-dir)
+                          (with-action-options {:script-dir co-dir}
+                            (git/checkout "0.6.x"
+                                          :remote-branch "remotes/origin/support/0.6.x")))))
+            :git-gat (plan-fn
+                      (with-action-options {:script-dir "/tmp/p.02"
+                                            :script-prefix :no-sudo}
+                        (git/checkout "0.7.x"
+                                      :remote-branch "remotes/origin/support/0.7.x")))
+            :tor-sync (plan-fn
+                       (remote-file "/usr/local/bin/btsync" 
+                                    :force true 
+                                    :action :create
+                                    :url 
+                                    "http://btsync.s3-website-us-east-1.amazonaws.com/btsync_x64.tar.gz")
+                       (exec-script
+                        ("tar" "xfz" "/tmp/btsync.tar.gz" "-C" "/usr/local/bin/")))
+            :sync-secret (plan-fn
+                          (exec-checked-script
+                           "foofy"
+                           ("btsync" "--generate-secret")))
+            :lein-install (plan-fn (lein/install-lein))
+}))
  
 (def co-worker-cs
   (group-spec
    "co-worker-cs" :extends [with-base-server]
    :node-spec co-worker-default-node))
 
-;; Define compute
-;(def aws-srvc (compute/compute-service-from-config-file :aws))
-;(def vmfest (compute/compute-service-from-config-file :vmfest))
+(comment
+  ;; Define compute
+  (def aws-srvc (configure/compute-service :aws))
+  (def vmfest (configure/compute-service :vmfest))
 
-;; Examples of use
-;;
-;; Create a server
-;(def cap (converge {co-worker-cs 1} :compute vmfest))
-;(show-nodes vmfest)
+  ;; Examples of use
+  ;;
+  ;; Create a server
+  (def cap (converge {co-worker-cs 1} :compute vmfest))
+  (show-nodes vmfest)
 
-;; Destroy all running servers
-;(def cap (converge {co-worker-cs 0} :compute aws-srvc))
-;(def cap (converge {co-worker-cs 0} :compute vmfest))
+  ;; Destroy all running servers
+  (def cap (converge {co-worker-cs 0} :compute vmfest))
+
+  ;; Update users on all running servers with the list in resources/users_keys.properties
+  ;(def cap (lift co-worker-cs :compute vmfest :phase :update-users))
+  ;(def cap (lift co-worker-cs :compute vmfest :phase :co-working))
+  (def cap (lift co-worker-cs :compute vmfest :phase :configure))
+  (def cap (lift co-worker-cs :compute vmfest :phase :git-install))
+  (def cap (lift co-worker-cs :compute vmfest :phase :git-get))
+  (def cap (lift co-worker-cs :compute vmfest :phase :git-gat))
+  (def cap (lift co-worker-cs :compute vmfest :phase :java))
+  (def cap (lift co-worker-cs :compute vmfest :phase :lein-install))
+  (def cap (lift co-worker-cs :compute vmfest :phase :tor-sync))
+  (def cap (lift co-worker-cs :compute vmfest :phase :sync-secret))
+  )
+
 
 ;; Install java on all running servers
 ;(def cap (lift co-worker-cs :compute vmfest :phase :java))
@@ -188,7 +233,3 @@
 ;; Output all a list of all runninger servers
 ;(pprint (show-nodes vmfest))
 
-;; Update users on all running servers with the list in resources/users_keys.properties
-;(def cap (lift co-worker-cs :compute vmfest :phase :update-users))
-;(def cap (lift co-worker-cs :compute vmfest :phase :configure))
-;(def cap (lift co-worker-cs :compute vmfest :phase :co-working))
